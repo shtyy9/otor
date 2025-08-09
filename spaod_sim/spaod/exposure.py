@@ -1,12 +1,13 @@
-# ====================== spaod/exposure.py ======================
-# Exposure score calibration from single-node detection; window risk helpers
+"""基于单节点检测的暴露评分校准。
+
+此处的辅助函数把单节点检测时间映射为边级暴露分，
+并提供用于分析多节点风险窗口的工具。
+"""
 from typing import Dict, Tuple
 import numpy as np
 
 def compute_dotD_from_ET1(E_T1_map: Dict[str, float], tau: float) -> Dict[str, float]:
-    """
-    dotD_i ≈ tau / E[T1]_i  (units: arbitrary 'info-rate' per second)
-    """
+    """将 ``E[T1]`` 映射转成 ``dotD``：``dotD_i ≈ tau / E[T1]_i``（单位为秒⁻¹的信息率）。"""
     mp = {}
     for oid, et1 in E_T1_map.items():
         et1 = max(1e-6, float(et1))
@@ -15,12 +16,13 @@ def compute_dotD_from_ET1(E_T1_map: Dict[str, float], tau: float) -> Dict[str, f
 
 def distribute_exposure_to_edges(edge_usage: Dict[Tuple[str,str], float],
                                  dotD_map: Dict[str, float]) -> Dict[Tuple[str,str], float]:
-    """
-    edge_usage: {(u,v): time_occupied_seconds} accumulated from sim logs (任意尺度的占用时间或比例)
-    dotD_map: {observer_id: dotD} where observer_id is typically a node ID (e.g., 'S123','G5')
-    将每个观察点的可辨识速率按它“相关的边占用”分提到边上，得到 g[e]（暴露分）。
-    一个简单可复用的缺省策略：若边(u,v)与某观察点o相邻（u==o或v==o），则该点对该边的贡献∝ edge_usage[(u,v)]。
-    更精细的映射可以在将来替换。
+    """将节点可辨识速率 ``dotD`` 分配到各边上以得到暴露分 ``g[e]``。
+
+    参数说明：
+    ``edge_usage`` 为 ``{(u,v): time_occupied_seconds}``，来源于仿真日志的边占用时间或比例；
+    ``dotD_map`` 为 ``{observer_id: dotD}``，观察点一般为节点 ID（如 'S123'、'G5'）。
+    简单可复用的默认策略是：若边 ``(u,v)`` 与观察点 ``o`` 相邻，则该点对该边的贡献与 ``edge_usage[(u,v)]`` 成比例。
+    将来可替换为更精细的映射规则。
     """
     # 先统计每个观察点相关边的总占用
     adj_sum: Dict[str, float] = {}
@@ -39,18 +41,15 @@ def distribute_exposure_to_edges(edge_usage: Dict[Tuple[str,str], float],
     return g_e
 
 def p_single_window(E_T1: float, W_s: float) -> float:
-    """
-    Approximate single-node success probability within window W:
-      p_i(W) ≈ min(1, W / E[T1]_i)
-    """
+    """近似计算单节点在窗口 ``W`` 内成功的概率：``p_i(W) ≈ min(1, W / E[T1]_i)``。"""
     if E_T1 <= 0: return 1.0
     return float(min(1.0, W_s / E_T1))
 
 def chernoff_upper_bound_poibin(p_list, m:int):
-    """
-    Simple Chernoff-style bound for Poisson-Binomial tail:
-      P( sum Xi >= m ) <= inf_{t>0} exp(-t m) * Π_i (1 - p_i + p_i e^t)
-    We do coarse grid over t.
+    """Poisson-Binomial 分布尾部的简单 Chernoff 上界。
+
+    公式：``P(∑Xi >= m) ≤ inf_{t>0} e^{-t m} * Π_i (1 - p_i + p_i e^t)``，
+    此处对 ``t`` 进行粗网格搜索。
     """
     p = np.array(p_list, dtype=float)
     if len(p) == 0: return 0.0
@@ -63,8 +62,6 @@ def chernoff_upper_bound_poibin(p_list, m:int):
     return float(min(1.0, max(0.0, best)))
 
 def window_multi_node_risk(E_T1_map: Dict[str,float], W_s: float, m:int) -> float:
-    """
-    Compute Chernoff upper bound of '>= m nodes succeed within W'.
-    """
+    """计算 ``W`` 窗口内“至少 ``m`` 个节点成功”的 Chernoff 上界。"""
     p_list = [p_single_window(v, W_s) for v in E_T1_map.values()]
     return chernoff_upper_bound_poibin(p_list, m)

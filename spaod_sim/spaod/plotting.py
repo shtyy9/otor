@@ -1,2 +1,5 @@
-# Placeholder module for SPAO-D simulation
-# Implementation will be added in subsequent steps.
+"""SPAO-D 模拟器的可视化辅助模块。
+
+目前阶段暂未提供绘图函数，此文档字符串仅表明未来将添加
+星座、轨迹以及仿真结果的可视化例程。
+"""

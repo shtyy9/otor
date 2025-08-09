@@ -1,4 +1,8 @@
-# Glue: build candidates, score with latency+privacy, enforce risk constraints, select path
+"""SPAO-D 模拟器的路径选择求解器。
+
+该求解器结合候选生成、代价评分与风险约束，在一对地面站之间选择一条路径。
+代码刻意保持紧凑并配以大量注释，使路由逻辑易于理解。
+"""
 import os, json
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
@@ -15,6 +19,7 @@ from .algo_sinkhorn import softmin_costs, pick_path_by_probs
 
 @dataclass
 class AlgoCfg:
+    """控制路径选择行为的可调参数。"""
     K_paths:int = 6
     temp: float = 0.6              # temperature of softmin
     alpha: float = 0.5             # weight: latency
@@ -28,7 +33,7 @@ class AlgoCfg:
     seed:int = 123
 
 def _sat_orbit_map(P:int, S:int) -> Dict[str, Tuple[int,int]]:
-    # S<i> -> (plane, in-plane index)
+    """返回 ``S<i> -> (所属轨道面, 轨内索引)`` 的映射。"""
     mp={}
     for p in range(P):
         for s in range(S):
@@ -37,16 +42,18 @@ def _sat_orbit_map(P:int, S:int) -> Dict[str, Tuple[int,int]]:
     return mp
 
 def _flatten_layered(path: List[Tuple[int,str]]) -> List[str]:
+    """从分层节点路径中去除层信息。"""
     return [name for (_layer, name) in path]
 
 def _edge_usage_from_path(flat_nodes: List[str]) -> Dict[Tuple[str,str], float]:
-    # 简单：每条边占用=1（或按边数归一化）；用于把 dotD 分摊到边
+    """根据扁平化的节点序列计算简单的边占用直方图。"""
     usage={}
     for u,v in zip(flat_nodes[:-1], flat_nodes[1:]):
         usage[(u,v)] = usage.get((u,v), 0.0) + 1.0
     return usage
 
 def _path_latency_seconds(G: nx.DiGraph, layered_path: List[Tuple[int,str]]) -> float:
+    """根据边权 ``w`` 计算分层路径的总时延。"""
     w=0.0
     for u,v in zip(layered_path[:-1], layered_path[1:]):
         w+=G[u][v].get("w",0.0)
@@ -58,6 +65,11 @@ def select_path_for_pair(ogs_df: pd.DataFrame,
                          algo_cfg: AlgoCfg,
                          det_csv_path: str = "data/single_node_det.csv",
                          adversary: ThreatModel = None):
+    """在两个地面站之间挑选一条可行路径。
+
+    该函数先生成候选路径，再结合时延与隐私指标进行评估，
+    应用风险上界后执行软选择。返回值为总结决策及中间指标的字典。
+    """
     rng = np.random.default_rng(algo_cfg.seed + src_g*991 + dst_g*997)
 
     # 1) 构建时间展开图 + K 条候选

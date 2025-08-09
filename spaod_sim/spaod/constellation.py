@@ -1,5 +1,8 @@
-# spaod/constellation.py
-# Walker-Delta constellation (Starlink-like 24x66=1584) + simple propagation & visibility
+"""SPAO-D 使用的简化 Walker-Delta 星座模型。
+
+本模块提供若干基础几何工具以及一个轻量级类，用于传播类似 Starlink 的卫星位置。
+该模型并非追求严格的天体力学精度，而是力求在网络层仿真和可见性检查上足够使用。
+"""
 import numpy as np
 from dataclasses import dataclass
 
@@ -8,6 +11,7 @@ mu = 3.986004418e14  # Earth GM [m^3/s^2]
 DEG = np.pi/180.0
 
 def geo_to_ecef(lat_deg: float, lon_deg: float, alt_m: float=0.0):
+    """将大地坐标转换为 ECEF 笛卡尔坐标。"""
     lat = lat_deg*DEG; lon = lon_deg*DEG
     r = Re + alt_m
     x = r*np.cos(lat)*np.cos(lon)
@@ -16,6 +20,7 @@ def geo_to_ecef(lat_deg: float, lon_deg: float, alt_m: float=0.0):
     return np.array([x,y,z])
 
 def elevation_deg(sat_ecef: np.ndarray, gs_ecef: np.ndarray):
+    """计算地面站指向卫星的仰角，单位为度。"""
     # Elevation = angle between (sat - gs) and local horizon at gs.
     vec = sat_ecef - gs_ecef
     rgs = np.linalg.norm(gs_ecef)
@@ -28,6 +33,7 @@ def elevation_deg(sat_ecef: np.ndarray, gs_ecef: np.ndarray):
 
 @dataclass
 class WalkerDeltaCfg:
+    """Walker‑Delta 星座的配置参数。"""
     planes: int = 24
     sats_per_plane: int = 66
     inclination_deg: float = 53.0
@@ -35,6 +41,7 @@ class WalkerDeltaCfg:
     phase_factor: int = 1  # f in Walker-delta
 
 class WalkerDelta:
+    """Walker‑Delta 卫星的轻量级轨道传播器。"""
     def __init__(self, cfg: WalkerDeltaCfg):
         self.cfg = cfg
         self.N = cfg.planes * cfg.sats_per_plane
@@ -55,6 +62,7 @@ class WalkerDelta:
         return np.array(cat, dtype=float)  # shape [N,4]
 
     def eci_position(self, t_s: float):
+        """返回在 ``t_s`` 秒时刻所有卫星的 ECI 坐标。"""
         # Circular orbit in ECI, per-satellite RAAN & true anomaly = M0 + omega*t
         P, S = self.cfg.planes, self.cfg.sats_per_plane
         N = self.N
@@ -75,15 +83,18 @@ class WalkerDelta:
         return np.stack([x,y,z], axis=1)  # [N,3]
 
     def batch_eci(self, t_array_s: np.ndarray):
+        """对多个时刻进行向量化调用 :meth:`eci_position`。"""
         return [self.eci_position(float(t)) for t in t_array_s]
 
 def visible_to_ground(eci_sat: np.ndarray, gs_lat: float, gs_lon: float, gs_alt_m: float, elev_min_deg: float):
+    """计算相对于某地面站的所有卫星的可见性掩码及仰角。"""
     gs = geo_to_ecef(gs_lat, gs_lon, gs_alt_m)
     el = np.array([elevation_deg(eci_sat[i], gs) for i in range(eci_sat.shape[0])])
     return el >= elev_min_deg, el
 
-# Convenience factory used by other modules
+# 供其他模块调用的便捷工厂函数
 def build_walker_constellation(planes=24, sats_per_plane=66, inclination_deg=53.0, altitude_m=550000.0, phase_factor=1):
+    """返回一个 :class:`WalkerDelta` 实例的便捷工厂函数。"""
     cfg = WalkerDeltaCfg(planes, sats_per_plane, inclination_deg, altitude_m, phase_factor)
     return WalkerDelta(cfg)
 
