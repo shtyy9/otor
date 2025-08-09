@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import networkx as nx
+from concurrent.futures import ProcessPoolExecutor
 
 from .topology import TopologyBuilder, LinkCfg, TEParams, candidate_paths_for_pair
 from .metrics_privacy import shortest_path_nodes, path_quality_metrics, exposure_probability
@@ -59,6 +60,47 @@ def _path_latency_seconds(G: nx.DiGraph, layered_path: List[Tuple[int,str]]) -> 
         w+=G[u][v].get("w",0.0)
     return float(w)
 
+def _score_candidate_path(args):
+    """Worker function for parallel path scoring.
+
+    Parameters
+    ----------
+    args : tuple
+        ``(Pth, G, sp_ref_flat, sat_orbit_map, dotD, algo_cfg)``.
+    """
+    (Pth, G, sp_ref_flat, sat_orbit_map, dotD, algo_cfg) = args
+    flat = _flatten_layered(Pth)
+
+    # 4.1 延迟
+    lat = _path_latency_seconds(G, Pth)
+
+    # 4.2 匿名性（与最短路的重叠、轨道/轨内差异）
+    q = path_quality_metrics(flat, sp_ref_flat, sat_orbit_map)
+    overlap = q["overlap_ratio"]
+    orbit_diff = q["orbit_diff"]
+    intra_diff = q["intra_diff"]
+
+    # 4.3 暴露分：用占用把 dotD 分摊到边，再沿路径累加
+    edge_usage = _edge_usage_from_path(flat)
+    g_e = distribute_exposure_to_edges(edge_usage, dotD)
+    exposure_sum = sum(g_e.get((u, v), 0.0) for (u, v) in edge_usage.keys())
+
+    # 4.4 组合代价
+    c = (
+        algo_cfg.alpha * lat
+        + algo_cfg.beta * overlap
+        + algo_cfg.gamma * (0.5 * orbit_diff + 0.5 * intra_diff)
+        + algo_cfg.zeta * exposure_sum
+    )
+    feats = {
+        "lat_s": lat,
+        "overlap": overlap,
+        "orbit_diff": orbit_diff,
+        "intra_diff": intra_diff,
+        "exposure_sum": exposure_sum,
+    }
+    return c, feats
+
 def select_path_for_pair(ogs_df: pd.DataFrame,
                          src_g: int, dst_g: int,
                          topo: TopologyBuilder,
@@ -101,36 +143,21 @@ def select_path_for_pair(ogs_df: pd.DataFrame,
 
     # 4) 逐路径打分：延迟 + 匿名性重叠 + 形状差异 + 暴露分（边级）
     satmap = _sat_orbit_map(topo.P, topo.S)
-    costs = []
-    path_feats = []
-    for Pth in cand_paths:
-        flat = _flatten_layered(Pth)
+    sat_orbit_map = {f"S{i}": satmap.get(f"S{i}", None) for i in range(topo.N)}
+    dotD = compute_dotD_from_ET1(E_map, algo_cfg.tau_threshold)
+    args_list = [
+        (Pth, G, sp_ref_flat, sat_orbit_map, dotD, algo_cfg) for Pth in cand_paths
+    ]
 
-        # 4.1 延迟
-        lat = _path_latency_seconds(G, Pth)
+    if len(args_list) > 1:
+        max_workers = min(len(args_list), os.cpu_count() or 1)
+        with ProcessPoolExecutor(max_workers=max_workers) as exe:
+            results = list(exe.map(_score_candidate_path, args_list))
+    else:
+        results = [_score_candidate_path(args_list[0])]
 
-        # 4.2 匿名性（与最短路的重叠、轨道/轨内差异）
-        q = path_quality_metrics(flat, sp_ref_flat, {f"S{i}": satmap.get(f"S{i}", None) for i in range(topo.N)})
-        overlap = q["overlap_ratio"]
-        orbit_diff = q["orbit_diff"]
-        intra_diff = q["intra_diff"]
-
-        # 4.3 暴露分：用占用把 dotD 分摊到边，再沿路径累加
-        edge_usage = _edge_usage_from_path(flat)
-        dotD = compute_dotD_from_ET1(E_map, algo_cfg.tau_threshold)
-        g_e = distribute_exposure_to_edges(edge_usage, dotD)
-        exposure_sum = sum(g_e.get((u,v),0.0) for (u,v) in edge_usage.keys())
-
-        # 4.4 组合代价
-        c = (algo_cfg.alpha * lat
-             + algo_cfg.beta  * overlap
-             + algo_cfg.gamma * (0.5*orbit_diff + 0.5*intra_diff)
-             + algo_cfg.zeta  * exposure_sum)
-        costs.append(c)
-        path_feats.append({
-            "lat_s": lat, "overlap": overlap, "orbit_diff": orbit_diff,
-            "intra_diff": intra_diff, "exposure_sum": exposure_sum
-        })
+    costs = [c for c, _ in results]
+    path_feats = [feat for _, feat in results]
 
     # 5) 软选择（温度 temp），输出被选路径及备选排序
     probs = softmin_costs(costs, temp=algo_cfg.temp)
