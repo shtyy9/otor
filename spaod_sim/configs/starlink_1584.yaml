@@ -1,1 +1,20 @@
-# Placeholder configuration for 1584-satellite Starlink-like constellation
+random_seed: 42
+time: {dt: 1.0, horizon_s: 600}
+constellation: {type: walker-delta, planes: 24, sats_per_plane: 66, inclination_deg: 53.0, altitude_m: 550000, phase_factor: 1}
+links:
+  isl_max_km: 3000
+  elev_min_deg: 10
+  wavelength_nm: 1550
+  capacity_isl_gbps: 100
+  capacity_sg_gbps: 40
+  osnr_threshold_db: 12
+  atm_loss_sg_db: [2.0, 8.0]
+  atm_loss_isl_db: 0.5
+  pat_mean_s: 0.5
+resources: {num_lambda: 8, tdm_slots_per_s: 10}
+traffic: {load_levels: [0.3, 0.6, 0.9], flow_model: ogs_ogs}
+detector: {tau_threshold: 10.0}
+algo: {method: sinkhorn, alpha: 0.5, beta: 1.0, gamma: 0.1, K_paths: 6}
+risk_window: {W_s: 30, m_max: 2}
+replications: 5
+outputs: {dir: out}
