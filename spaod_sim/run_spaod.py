@@ -89,6 +89,7 @@ def _run_seed(seed: int, config: str, alg: str):
     return res
 
 
+
 def main():
     """Entry point for the command line interface."""
     parser = argparse.ArgumentParser(description="SPAO-D simulation skeleton")
@@ -99,10 +100,12 @@ def main():
     parser.add_argument("--seeds", type=int, default=1)
     args = parser.parse_args()
 
+
+    # Run each seed in its own process to better utilise CPU cores.
     seeds = list(range(args.seeds))
     if len(seeds) > 1:
         with ProcessPoolExecutor() as exe:
-            exe.map(_run_seed, seeds, [args.config] * len(seeds), [args.alg] * len(seeds))
+            exe.map(_run_seed, seeds, [args.config]*len(seeds), [args.alg]*len(seeds))
     else:
         _run_seed(seeds[0], args.config, args.alg)
 
