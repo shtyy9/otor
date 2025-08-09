@@ -1,2 +1,5 @@
-# Placeholder module for SPAO-D simulation
-# Implementation will be added in subsequent steps.
+"""SPAO-D 的主仿真循环。
+
+模拟器核心仍在演进中，本模块未来将包含协调星座更新、流量生成
+及路径选择的事件循环。当前仅保留文档字符串以说明其用途。
+"""

@@ -1,5 +1,4 @@
-# spaod/topology.py
-# Time-varying topology for 24x66 Starlink-like constellation + K-shortest on a time-expanded graph
+"""Starlink 类星座的时变拓扑构建。"""
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
@@ -23,9 +22,7 @@ class TEParams:
     pat_mean_s: float = 0.5  # average acquisition time surrogate
 
 class TopologyBuilder:
-    """
-    Build instantaneous ISL/SG links and time-expanded graph (TEG).
-    """
+    """构建瞬时的 ISL/SG 链路以及时间展开图（TEG）。"""
     def __init__(self, planes:int, sats_per_plane:int, inc_deg:float, alt_m:float, phase_factor:int,
                  link_cfg: LinkCfg, te_params: TEParams):
         self.P = planes
@@ -39,9 +36,9 @@ class TopologyBuilder:
 
     # ---------- Instantaneous neighbors ----------
     def isl_neighbors(self, isl_max_m: float) -> Dict[int, List[int]]:
-        """
-        Static neighbor template: same-plane ±1 and adjacent-plane closest phase (wrap-around).
-        Distance filter applied per time using positions.
+        """静态邻接模板：同平面 ±1 以及相邻平面最近相位（循环）。
+
+        实际距离过滤在每个时刻根据卫星位置进行。
         """
         nbrs = {i: set() for i in range(self.N)}
         # same-plane ±1
@@ -63,6 +60,7 @@ class TopologyBuilder:
         return {i: list(v) for i, v in nbrs.items()}
 
     def visible_sg(self, sat_ecef: np.ndarray, ogs_ecef: np.ndarray, elev_min_deg: float):
+        """判断卫星位置对各地面站的可见性掩码。"""
         vis = []
         for gi, gs in enumerate(ogs_ecef):
             el = elevation_deg(sat_ecef, gs)
@@ -101,11 +99,11 @@ class TopologyBuilder:
     # ---------- Time-expanded graph ----------
     def build_teg(self, ogs_df: pd.DataFrame,
                   feasible_edge_cb: Optional[Callable[[dict], bool]] = None) -> nx.DiGraph:
-        """
-        Build a time-expanded directed graph. Each time layer t has satellite and OGS nodes.
-        Edges connect within-layer physical links with weight = propagation + expected acquisition (PAT surrogate),
-        and temporal holdover edges to allow waiting.
-        feasible_edge_cb(attr)->bool can further filter edges (e.g., OSNR/capacity) and can be None for now.
+        """构建时间展开的有向图。
+
+        每个时间层包含卫星和地面站节点；边表示同层物理链路，
+        权重为传播时延加期望获取时间（PAT 替代），并包含允许等待的跨层保持边。
+        ``feasible_edge_cb(attr)->bool`` 可进一步筛选边（例如 OSNR/容量），允许为 ``None``。
         """
         dt = self.te.dt
         T = int(self.te.horizon_s / dt)
@@ -141,9 +139,9 @@ class TopologyBuilder:
 
 # ---------- K-shortest on TEG ----------
 def k_shortest_time_expanded(G: nx.DiGraph, src: Tuple[int,str], dst: Tuple[int,str], K:int=6) -> List[List[Tuple[int,str]]]:
-    """
-    Yen's K-shortest paths (by total weight 'w') on time-expanded graph G.
-    src, dst are layered nodes like (0,'G0') to (T,'G3').
+    """在时间展开图上执行 Yen 算法求 K 条最短路径（按总权 ``w``）。
+
+    ``src``、``dst`` 为分层节点，如 ``(0,'G0')`` 到 ``(T,'G3')``。
     """
     def path_cost(p):
         return sum(G[u][v]["w"] for u, v in zip(p[:-1], p[1:]))
@@ -195,9 +193,7 @@ def candidate_paths_for_pair(ogs_df: pd.DataFrame, src_g:int, dst_g:int,
                              topo: TopologyBuilder,
                              feasible_edge_cb: Optional[Callable[[dict], bool]]=None,
                              K:int=6) -> List[List[Tuple[int,str]]]:
-    """
-    Build TEG, then compute K shortest paths from (layer0, Gsrc) to (layerT, Gdst).
-    """
+    """先构建 TEG，再求从 ``(layer0,Gsrc)`` 到 ``(layerT,Gdst)`` 的 K 条最短路径。"""
     G = topo.build_teg(ogs_df, feasible_edge_cb=feasible_edge_cb)
     T = int(topo.te.horizon_s / topo.te.dt)
     src = (0, f"G{src_g}")

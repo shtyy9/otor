@@ -1,2 +1,5 @@
-# Placeholder module for SPAO-D simulation
-# Implementation will be added in subsequent steps.
+"""SPAO-D 模拟器中通用指标的占位模块。
+
+目前项目主要聚焦于隐私感知路由，尚未实现具体的性能指标。
+保留该文档字符串以说明未来可在此添加时延、吞吐量等指标实现。
+"""

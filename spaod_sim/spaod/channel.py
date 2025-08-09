@@ -1,2 +1,5 @@
-# Placeholder module for SPAO-D simulation
-# Implementation will be added in subsequent steps.
+"""SPAO-D 模拟器中的通信信道工具。
+
+该模块目前只是占位符，将来可在此实现传播损耗、衰落或干扰等具体信道模型。
+明确的文档字符串能帮助贡献者了解应在何处加入与信道相关的逻辑。
+"""

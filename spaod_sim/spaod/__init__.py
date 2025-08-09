@@ -1,2 +1,1 @@
-# Placeholder module for SPAO-D simulation
-# Implementation will be added in subsequent steps.
+"""SPAO-D 模拟器模块的包标记。"""
